@@ -1,0 +1,70 @@
+{
+  "db": {
+    "path": "E:\\Work\\stockscanner\\stock_intel\\data\\stock_intel.db",
+    "echo": false,
+    "pool_size": 5,
+    "max_overflow": 10
+  },
+  "scanner": {
+    "min_price": 2.0,
+    "max_price": 500.0,
+    "min_volume": 100000,
+    "volume_surge_threshold": 1.5,
+    "premarket_change_threshold": 2.0,
+    "max_stocks_to_scan": 3000,
+    "lookback_days": 20,
+    "unusual_volume_lookback": 5
+  },
+  "sentiment": {
+    "reddit_subreddits": [
+      "wallstreetbets",
+      "stocks",
+      "investing",
+      "StockMarket",
+      "pennystocks",
+      "options",
+      "trading",
+      "Daytrading"
+    ],
+    "reddit_posts_limit": 500,
+    "news_sources_weight": 0.5,
+    "reddit_weight": 0.5,
+    "positive_threshold": 0.15,
+    "negative_threshold": -0.15
+  },
+  "weights": {
+    "volume_score": 0.25,
+    "news_catalyst_score": 0.2,
+    "momentum_score": 0.12,
+    "float_score": 0.09,
+    "earnings_momentum_score": 0.1,
+    "sentiment_score": 0.08,
+    "technical_score": 0.048,
+    "premarket_score": 0.02,
+    "insider_score": 0.02
+  },
+  "email": {
+    "smtp_server": "smtp.gmail.com",
+    "smtp_port": 587,
+    "sender_email": "",
+    "sender_password": "",
+    "recipient_email": "",
+    "enabled": false
+  },
+  "collector": {
+    "yahoo_rate_limit": 0.5,
+    "reddit_client_id": "",
+    "reddit_client_secret": "",
+    "reddit_user_agent": "StockIntel/1.0",
+    "finviz_timeout": 30,
+    "sec_rate_limit": 0.1
+  },
+  "top_n_recommendations": 10,
+  "market_open_hour": 9,
+  "market_open_minute": 30,
+  "market_close_hour": 16,
+  "market_close_minute": 0,
+  "premarket_start_hour": 4,
+  "premarket_start_minute": 0,
+  "data_dir": "E:\\Work\\stockscanner\\stock_intel\\data"
+}
