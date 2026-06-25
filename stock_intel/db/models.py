@@ -1,6 +1,6 @@
 import datetime
 from sqlalchemy import (
-    Column, Integer, Float, String, Text, DateTime, Date, Boolean,
+    Column, Integer, Float, String, Text, DateTime, Date, Boolean, Time,
     ForeignKey, Index, UniqueConstraint, create_engine, JSON
 )
 from sqlalchemy.orm import declarative_base, relationship
@@ -98,10 +98,33 @@ class Recommendation(Base):
     predicted_gap_pct = Column(Float)
     actual_gap_pct = Column(Float, nullable=True)
     actual_close_pct = Column(Float, nullable=True)
+    return_1d = Column(Float, nullable=True)
+    return_2d = Column(Float, nullable=True)
+    return_5d = Column(Float, nullable=True)
+    best_return = Column(Float, nullable=True)
+    worst_return = Column(Float, nullable=True)
+    max_drawdown = Column(Float, nullable=True)
+    spy_return_pct = Column(Float, nullable=True)
     prediction_accurate = Column(Boolean, nullable=True)
+    prediction_accurate_1d = Column(Boolean, nullable=True)
+    prediction_accurate_2d = Column(Boolean, nullable=True)
+    prediction_accurate_5d = Column(Boolean, nullable=True)
     evaluated = Column(Boolean, default=False)
     failure_reason = Column(Text, nullable=True)
     failure_category = Column(String(50), nullable=True)
+
+    buy_window_start = Column(Time, nullable=True)
+    buy_window_end = Column(Time, nullable=True)
+    sell_window_start = Column(Time, nullable=True)
+    sell_window_end = Column(Time, nullable=True)
+    holding_period_days = Column(Integer, nullable=True)
+    planned_exit_date = Column(Date, nullable=True)
+    trade_entry_price = Column(Float, nullable=True)
+    trade_exit_price = Column(Float, nullable=True)
+    trade_return = Column(Float, nullable=True)
+
+    allocation_pct = Column(Float, nullable=True)
+    conviction_label = Column(String(20), nullable=True)
 
     stock = relationship("Stock", back_populates="recommendations")
 
@@ -238,15 +261,23 @@ class PerformanceSummary(Base):
     correct_predictions = Column(Integer)
     incorrect_predictions = Column(Integer)
     win_rate = Column(Float)
+    win_rate_1d = Column(Float, nullable=True)
+    win_rate_2d = Column(Float, nullable=True)
+    win_rate_5d = Column(Float, nullable=True)
     avg_return_pct = Column(Float)
+    avg_return_1d = Column(Float, nullable=True)
+    avg_return_2d = Column(Float, nullable=True)
+    avg_return_5d = Column(Float, nullable=True)
     median_return_pct = Column(Float)
     total_gain_pct = Column(Float)
     max_gain_pct = Column(Float)
     max_loss_pct = Column(Float)
+    max_drawdown = Column(Float, nullable=True)
     std_return_pct = Column(Float)
     sharpe_ratio = Column(Float)
     cumulative_win_rate = Column(Float)
     risk_reward_ratio = Column(Float)
+    spy_return_pct = Column(Float, nullable=True)
     avg_volume_score = Column(Float)
     avg_premarket_score = Column(Float)
     avg_sentiment_score = Column(Float)
@@ -344,6 +375,49 @@ class ProposalArgument(Base):
     agent_name = Column(String(100), default="human")
 
     proposal = relationship("StrategyProposal", back_populates="arguments")
+
+
+class Position(Base):
+    __tablename__ = "positions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    recommendation_id = Column(Integer, ForeignKey("recommendations.id"), nullable=False, unique=True)
+    ticker = Column(String(10), nullable=False, index=True)
+    entry_date = Column(Date, nullable=False)
+    entry_price = Column(Float, nullable=False)
+    current_price = Column(Float, nullable=True)
+    current_return = Column(Float, nullable=True)
+    exit_date = Column(Date, nullable=True)
+    exit_price = Column(Float, nullable=True)
+    trade_return = Column(Float, nullable=True)
+    holding_period_days = Column(Integer, nullable=False, default=1)
+    planned_exit_date = Column(Date, nullable=False)
+    status = Column(String(10), nullable=False, default="open")
+    closed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    recommendation = relationship("Recommendation")
+
+    __table_args__ = (
+        Index("idx_position_status", "status"),
+        Index("idx_position_exit_date", "planned_exit_date"),
+    )
+
+
+class PortfolioSnapshot(Base):
+    __tablename__ = "portfolio_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(Date, nullable=False, unique=True)
+    total_invested = Column(Float, default=0.0)
+    portfolio_value = Column(Float, default=0.0)
+    daily_return = Column(Float, nullable=True)
+    cumulative_return = Column(Float, nullable=True)
+    open_positions = Column(Integer, default=0)
+    closed_positions_today = Column(Integer, default=0)
+    total_closed_positions = Column(Integer, default=0)
+    benchmark_return = Column(Float, nullable=True)
+    alpha = Column(Float, nullable=True)
 
 
 def create_all_tables(engine):

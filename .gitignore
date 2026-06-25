@@ -30,3 +30,6 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+
+# Old DB file (alternate naming)
+stock_intel/data/stockintel.db

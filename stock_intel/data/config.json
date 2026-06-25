@@ -11,7 +11,7 @@
     "min_volume": 100000,
     "volume_surge_threshold": 1.5,
     "premarket_change_threshold": 2.0,
-    "max_stocks_to_scan": 3000,
+    "max_stocks_to_scan": 6000,
     "lookback_days": 20,
     "unusual_volume_lookback": 5
   },
@@ -46,10 +46,11 @@
   "email": {
     "smtp_server": "smtp.gmail.com",
     "smtp_port": 587,
-    "sender_email": "",
+    "sender_email": "abeersharma125518@gmail.com",
     "sender_password": "",
-    "recipient_email": "",
-    "enabled": false
+    "recipient_email": "abeersharma125518@gmail.com",
+    "enabled": true,
+    "password_env_var": "STOCKINTEL_EMAIL_PASSWORD"
   },
   "collector": {
     "yahoo_rate_limit": 0.5,

@@ -19,6 +19,7 @@ from stock_intel.agents.pattern_discovery import PatternDiscoveryAgent
 from stock_intel.agents.improvement_engine import ImprovementEngine
 from stock_intel.utils.dashboard import Dashboard
 from stock_intel.utils.emailer import EmailReporter
+from stock_intel.agents.attribution_engine import FACTOR_META
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,7 @@ class StockIntelPipeline:
         self.dashboard.print_cli_dashboard()
         self.dashboard.save_json()
         recs = self.context.get("scoring_results", {}).get("recommendations", [])
-        self.emailer.send_daily_report(recs)
+        logger.info(f"Dashboard generated, {len(recs)} recommendations")
         return {"dashboard_generated": True, "recommendations_count": len(recs)}
 
     def run_evaluation_phase(self) -> Dict:
@@ -192,7 +193,56 @@ class StockIntelPipeline:
         elapsed = time.time() - start
         logger.info(f"Pipeline complete in {elapsed:.1f}s")
         self.context["elapsed_seconds"] = elapsed
+        self._send_daily_email()
         return self.context
+
+    def _send_daily_email(self):
+        try:
+            scanner_results = self.context.get("scanner_results", {})
+            scoring_results = self.context.get("scoring_results", {})
+            eval_results = self.context.get("evaluation_results", {})
+            calibration_results = self.context.get("calibration_results", {})
+            attribution_results = self.context.get("attribution_results", {})
+            research_results = self.context.get("research_results", {})
+            pattern_results = self.context.get("pattern_results", {})
+
+            factor_perf = {}
+            for k, meta in FACTOR_META.items():
+                v = attribution_results.get("factor_attributions", {}).get(k)
+                if v and v.get("total_trades", 0) > 0:
+                    factor_perf[meta["label"]] = {"win_rate": v.get("win_rate", 0),
+                                                  "avg_return": v.get("avg_return", 0),
+                                                  "total_trades": v.get("total_trades", 0)}
+
+            research_insights = {}
+            if research_results:
+                research_insights["proposals_list"] = research_results.get("proposals", [])
+                research_insights["patterns_found"] = len(pattern_results.get("discoveries", {}).get("multi_factor_rules", {}).get("rules", []))
+                if calibration_results:
+                    research_insights["calibration_summary"] = {
+                        "ece": calibration_results.get("ece", 0),
+                        "accuracy": calibration_results.get("overall_accuracy", 0),
+                    }
+
+            email_context = {
+                "date": datetime.date.today().isoformat(),
+                "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "stocks_scanned": len(scanner_results.get("all_snapshots", {})),
+                "recommendations_count": len(scoring_results.get("recommendations", [])),
+                "elapsed_seconds": self.context.get("elapsed_seconds", 0),
+                "recommendations": scoring_results.get("recommendations", []),
+                "performance": eval_results,
+                "research_insights": research_insights,
+                "factor_performance": factor_perf,
+                "open_positions": eval_results.get("open_positions_data", []),
+                "closed_positions": eval_results.get("closed_positions_data", []),
+                "portfolio": eval_results.get("portfolio", {}),
+                "allocation_data": eval_results.get("allocation_data", []),
+                "cash_pct": eval_results.get("cash_pct", 0),
+            }
+            self.emailer.send_daily_report(email_context)
+        except Exception as e:
+            logger.error(f"Failed to send daily email: {e}")
 
     def run_scan_only(self) -> Dict:
         return self.run_scan_phase()

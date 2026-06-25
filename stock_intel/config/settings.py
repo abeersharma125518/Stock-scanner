@@ -20,7 +20,7 @@ class ScannerConfig:
     min_volume: int = 100000
     volume_surge_threshold: float = 1.5
     premarket_change_threshold: float = 2.0
-    max_stocks_to_scan: int = 3000
+    max_stocks_to_scan: int = 6000
     lookback_days: int = 20
     unusual_volume_lookback: int = 5
 
@@ -66,6 +66,7 @@ class EmailConfig:
     sender_password: str = ""
     recipient_email: str = ""
     enabled: bool = False
+    password_env_var: str = "STOCKINTEL_EMAIL_PASSWORD"
 
 
 @dataclass

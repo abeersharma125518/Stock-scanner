@@ -11,7 +11,8 @@ from stock_intel.db.models import (
     Base, Stock, DailySnapshot, Recommendation, InsiderTransaction,
     EarningsEvent, NewsArticle, RedditMention, StockSignal,
     PerformanceSummary, SignalPerformance, UserAlert,
-    ResearchReport, StrategyProposal, ProposalArgument, create_all_tables,
+    ResearchReport, StrategyProposal, ProposalArgument, Position,
+    PortfolioSnapshot, create_all_tables,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,18 +40,57 @@ class DatabaseManager:
 
     def _migrate_schema(self):
         with self.session() as session:
-            from sqlalchemy import inspect
+            from sqlalchemy import inspect, text
             inspector = inspect(self._engine)
             rec_cols = [c["name"] for c in inspector.get_columns("recommendations")]
             if "failure_reason" not in rec_cols:
-                session.execute("ALTER TABLE recommendations ADD COLUMN failure_reason TEXT")
-                session.execute("ALTER TABLE recommendations ADD COLUMN failure_category VARCHAR(50)")
+                session.execute(text("ALTER TABLE recommendations ADD COLUMN failure_reason TEXT"))
+                session.execute(text("ALTER TABLE recommendations ADD COLUMN failure_category VARCHAR(50)"))
                 logger.info("Schema migration: added failure_reason, failure_category to recommendations")
+            for col in ("return_1d", "return_2d", "return_5d", "best_return", "worst_return", "max_drawdown", "spy_return_pct"):
+                if col not in rec_cols:
+                    session.execute(text(f"ALTER TABLE recommendations ADD COLUMN {col} FLOAT"))
+                    logger.info(f"Schema migration: added {col} to recommendations")
+            for col in ("prediction_accurate_1d", "prediction_accurate_2d", "prediction_accurate_5d"):
+                if col not in rec_cols:
+                    session.execute(text(f"ALTER TABLE recommendations ADD COLUMN {col} BOOLEAN"))
+                    logger.info(f"Schema migration: added {col} to recommendations")
+            for col in ("buy_window_start", "buy_window_end", "sell_window_start", "sell_window_end"):
+                if col not in rec_cols:
+                    session.execute(text(f"ALTER TABLE recommendations ADD COLUMN {col} TIME"))
+                    logger.info(f"Schema migration: added {col} to recommendations")
+            for col in ("holding_period_days", "planned_exit_date"):
+                if col not in rec_cols:
+                    col_type = "DATE" if col == "planned_exit_date" else "INTEGER"
+                    session.execute(text(f"ALTER TABLE recommendations ADD COLUMN {col} {col_type}"))
+                    logger.info(f"Schema migration: added {col} to recommendations")
+            for col in ("trade_entry_price", "trade_exit_price", "trade_return"):
+                if col not in rec_cols:
+                    session.execute(text(f"ALTER TABLE recommendations ADD COLUMN {col} FLOAT"))
+                    logger.info(f"Schema migration: added {col} to recommendations")
+            for col in ("allocation_pct",):
+                if col not in rec_cols:
+                    session.execute(text(f"ALTER TABLE recommendations ADD COLUMN {col} FLOAT"))
+                    logger.info(f"Schema migration: added {col} to recommendations")
+            for col in ("conviction_label",):
+                if col not in rec_cols:
+                    session.execute(text(f"ALTER TABLE recommendations ADD COLUMN {col} VARCHAR(20)"))
+                    logger.info(f"Schema migration: added {col} to recommendations")
+            perf_cols = [c["name"] for c in inspector.get_columns("performance_summaries")]
+            for col in ("win_rate_1d", "win_rate_2d", "win_rate_5d", "avg_return_1d", "avg_return_2d", "avg_return_5d", "max_drawdown", "spy_return_pct"):
+                if col not in perf_cols:
+                    session.execute(text(f"ALTER TABLE performance_summaries ADD COLUMN {col} FLOAT"))
+                    logger.info(f"Schema migration: added {col} to performance_summaries")
             snap_cols = [c["name"] for c in inspector.get_columns("daily_snapshots")]
             for col in ("short_term_momentum", "mid_term_momentum"):
                 if col not in snap_cols:
-                    session.execute(f"ALTER TABLE daily_snapshots ADD COLUMN {col} FLOAT")
+                    session.execute(text(f"ALTER TABLE daily_snapshots ADD COLUMN {col} FLOAT"))
                     logger.info(f"Schema migration: added {col} to daily_snapshots")
+            port_cols = [c["name"] for c in inspector.get_columns("portfolio_snapshots")]
+            for col in ("benchmark_return", "alpha"):
+                if col not in port_cols:
+                    session.execute(text(f"ALTER TABLE portfolio_snapshots ADD COLUMN {col} FLOAT"))
+                    logger.info(f"Schema migration: added {col} to portfolio_snapshots")
 
     @contextmanager
     def session(self) -> Generator[Session, None, None]:
@@ -332,7 +372,15 @@ class DatabaseManager:
                 {
                     "date": s.date,
                     "win_rate": s.win_rate,
+                    "win_rate_1d": s.win_rate_1d,
+                    "win_rate_2d": s.win_rate_2d,
+                    "win_rate_5d": s.win_rate_5d,
                     "avg_return": s.avg_return_pct,
+                    "avg_return_1d": s.avg_return_1d,
+                    "avg_return_2d": s.avg_return_2d,
+                    "avg_return_5d": s.avg_return_5d,
+                    "max_drawdown": s.max_drawdown,
+                    "spy_return_pct": s.spy_return_pct,
                     "total_recs": s.total_recommendations,
                     "correct": s.correct_predictions,
                     "incorrect": s.incorrect_predictions,
@@ -457,8 +505,19 @@ class DatabaseManager:
                     "momentum_score": r.momentum_score or 0,
                     "float_score": r.float_score or 0,
                     "actual_return": r.actual_close_pct,
+                    "return_1d": r.return_1d,
+                    "return_2d": r.return_2d,
+                    "return_5d": r.return_5d,
+                    "best_return": r.best_return,
+                    "worst_return": r.worst_return,
+                    "max_drawdown": r.max_drawdown,
+                    "spy_return_pct": r.spy_return_pct,
                     "prediction_accurate": r.prediction_accurate,
+                    "prediction_accurate_1d": r.prediction_accurate_1d,
+                    "prediction_accurate_2d": r.prediction_accurate_2d,
+                    "prediction_accurate_5d": r.prediction_accurate_5d,
                     "predicted_direction": r.predicted_direction,
+                    "signals": r.signals,
                     "rank": r.rank,
                 })
             return results
@@ -573,3 +632,98 @@ class DatabaseManager:
             session.add(arg)
             session.flush()
             return arg
+
+    def get_position_by_recommendation(self, recommendation_id: int) -> Optional[Position]:
+        with self.session() as session:
+            return session.query(Position).filter_by(
+                recommendation_id=recommendation_id
+            ).first()
+
+    def get_open_positions(self) -> List[Position]:
+        with self.session() as session:
+            from sqlalchemy.orm import joinedload
+            return session.query(Position).options(
+                joinedload(Position.recommendation)
+            ).filter(Position.status == "open").order_by(Position.entry_date).all()
+
+    def get_closed_positions_since(self, since_date: datetime.date) -> List[Position]:
+        with self.session() as session:
+            from sqlalchemy.orm import joinedload
+            return session.query(Position).options(
+                joinedload(Position.recommendation)
+            ).filter(
+                Position.status == "closed",
+                Position.closed_at >= datetime.datetime.combine(since_date, datetime.time.min),
+            ).order_by(desc(Position.closed_at)).all()
+
+    def save_position(self, data: dict) -> Position:
+        with self.session() as session:
+            existing = session.query(Position).filter_by(
+                recommendation_id=data["recommendation_id"]
+            ).first()
+            if existing:
+                preserve = {"status", "exit_date", "exit_price", "trade_return",
+                            "current_price", "current_return", "closed_at"}
+                for k, v in data.items():
+                    if hasattr(existing, k) and k not in preserve:
+                        setattr(existing, k, v)
+                position = existing
+            else:
+                position = Position(**data)
+                session.add(position)
+            session.flush()
+            return position
+
+    def update_position_price(self, position_id: int, current_price: float):
+        with self.session() as session:
+            pos = session.query(Position).filter_by(id=position_id).first()
+            if pos:
+                pos.current_price = current_price
+                pos.current_return = round((current_price - pos.entry_price) / pos.entry_price * 100, 2)
+
+    def close_position(self, position_id: int, exit_date: datetime.date, exit_price: float):
+        with self.session() as session:
+            pos = session.query(Position).filter_by(id=position_id).first()
+            if pos:
+                pos.exit_date = exit_date
+                pos.exit_price = exit_price
+                pos.trade_return = round((exit_price - pos.entry_price) / pos.entry_price * 100, 2)
+                pos.current_price = exit_price
+                pos.current_return = pos.trade_return
+                pos.status = "closed"
+                pos.closed_at = datetime.datetime.utcnow()
+
+    def save_portfolio_snapshot(self, date: datetime.date, data: dict) -> PortfolioSnapshot:
+        with self.session() as session:
+            existing = session.query(PortfolioSnapshot).filter_by(date=date).first()
+            if existing:
+                for k, v in data.items():
+                    if hasattr(existing, k):
+                        setattr(existing, k, v)
+                snap = existing
+            else:
+                snap = PortfolioSnapshot(date=date, **data)
+                session.add(snap)
+            session.flush()
+            return snap
+
+    def get_portfolio_history(self, days: int = 90) -> List[dict]:
+        with self.session() as session:
+            cutoff = datetime.date.today() - datetime.timedelta(days=days)
+            snaps = session.query(PortfolioSnapshot).filter(
+                PortfolioSnapshot.date >= cutoff
+            ).order_by(PortfolioSnapshot.date).all()
+            return [
+                {
+                    "date": s.date,
+                    "total_invested": s.total_invested,
+                    "portfolio_value": s.portfolio_value,
+                    "daily_return": s.daily_return,
+                    "cumulative_return": s.cumulative_return,
+                    "open_positions": s.open_positions,
+                    "total_closed": s.total_closed_positions,
+                    "benchmark_return": s.benchmark_return,
+                    "alpha": s.alpha,
+                }
+                for s in snaps
+            ]
