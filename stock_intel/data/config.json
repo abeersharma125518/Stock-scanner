@@ -47,7 +47,7 @@
     "smtp_server": "smtp.gmail.com",
     "smtp_port": 587,
     "sender_email": "abeersharma125518@gmail.com",
-    "sender_password": "",
+    "sender_password": "dwml tspf hnoh orcj",
     "recipient_email": "abeersharma125518@gmail.com",
     "enabled": true,
     "password_env_var": "STOCKINTEL_EMAIL_PASSWORD"

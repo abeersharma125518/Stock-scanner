@@ -91,6 +91,9 @@ class DatabaseManager:
                 if col not in port_cols:
                     session.execute(text(f"ALTER TABLE portfolio_snapshots ADD COLUMN {col} FLOAT"))
                     logger.info(f"Schema migration: added {col} to portfolio_snapshots")
+            if "benchmark_value" not in port_cols:
+                session.execute(text("ALTER TABLE portfolio_snapshots ADD COLUMN benchmark_value REAL"))
+                logger.info("Schema migration: added benchmark_value to portfolio_snapshots")
 
     @contextmanager
     def session(self) -> Generator[Session, None, None]:
@@ -724,6 +727,7 @@ class DatabaseManager:
                     "total_closed": s.total_closed_positions,
                     "benchmark_return": s.benchmark_return,
                     "alpha": s.alpha,
+                    "benchmark_value": s.benchmark_value,
                 }
                 for s in snaps
             ]

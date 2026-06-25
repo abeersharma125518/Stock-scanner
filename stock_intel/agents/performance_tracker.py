@@ -11,9 +11,7 @@ from stock_intel.utils.intraday import (
     TradeSpec, calc_entry_price, calc_exit_price, calc_current_price,
     next_market_date, planned_exit,
 )
-from stock_intel.utils.allocator import (
-    compute_allocations, compute_portfolio_return, fetch_benchmark_return,
-)
+from stock_intel.utils.allocator import compute_allocations
 
 logger = logging.getLogger(__name__)
 
@@ -323,67 +321,126 @@ class PerformanceTracker(BaseAgent):
         trade_results = self._compute_portfolio_metrics(today, trade_log)
         return trade_results
 
+    INITIAL_CAPITAL = 1000.0
+
     def _compute_portfolio_metrics(self, today: datetime.date,
                                     trade_log: Dict[str, Any]) -> Dict[str, Any]:
         open_positions = self.db.get_open_positions()
-        closed_positions = self.db.get_closed_positions_since(today - datetime.timedelta(days=1))
+        closed_positions = self.db.get_closed_positions_since(datetime.date(2020, 1, 1))
         today_closed = self.db.get_closed_positions_since(today)
 
-        total_invested = 0.0
-        portfolio_value = 0.0
-        all_trade_rets = []
+        all_positions = list(open_positions) + list(closed_positions)
 
-        for pos in open_positions:
-            if pos.status == "open":
-                total_invested += pos.entry_price
-                cur_val = pos.current_price if pos.current_price else pos.entry_price
-                portfolio_value += cur_val
+        if not all_positions:
+            snap_data = {
+                "total_invested": self.INITIAL_CAPITAL,
+                "portfolio_value": self.INITIAL_CAPITAL,
+                "daily_return": 0.0,
+                "cumulative_return": 0.0,
+                "open_positions": 0,
+                "closed_positions_today": 0,
+                "total_closed_positions": 0,
+                "benchmark_return": 0.0,
+                "alpha": 0.0,
+                "benchmark_value": self.INITIAL_CAPITAL,
+            }
+            self.db.save_portfolio_snapshot(today, snap_data)
+            return self._build_results(snap_data, trade_log, today, open_positions, today_closed, closed_positions)
 
-        for pos in closed_positions:
-            total_invested += pos.entry_price
-            portfolio_value += pos.exit_price if pos.exit_price else pos.entry_price
-            if pos.trade_return is not None:
-                all_trade_rets.append(pos.trade_return)
+        weights = {}
+        for pos in all_positions:
+            rec = pos.recommendation
+            if rec and rec.allocation_pct is not None:
+                weights[pos.ticker] = rec.allocation_pct
 
-        for tr in trade_log.get("trade_returns", []):
-            if tr["trade_return"] is not None:
-                all_trade_rets.append(tr["trade_return"])
+        legacy = [p for p in all_positions if p.ticker not in weights]
+        legacy_weight = 0.0
+        if legacy:
+            used = sum(weights.values())
+            legacy_weight = max(0.0, 100.0 - used) / len(legacy) if legacy else 0.0
 
-        cumulative_return = round((portfolio_value / total_invested - 1) * 100, 2) if total_invested > 0 else 0.0
+        total_weight = sum(weights.values()) + legacy_weight * len(legacy)
+        total_weight = max(total_weight, 0.01)
+
+        weighted_sum = 0.0
+        for pos in all_positions:
+            w = weights.get(pos.ticker, legacy_weight)
+            ret = (pos.trade_return if pos.status == "closed" and pos.trade_return is not None
+                   else (pos.current_return or 0))
+            weighted_sum += w * (ret or 0)
+
+        cumulative_return = weighted_sum / total_weight
+        portfolio_value = round(self.INITIAL_CAPITAL * (1 + cumulative_return / 100), 2)
+
+        spy_cumulative = 0.0
+        try:
+            earliest = min(p.entry_date for p in all_positions if p.entry_date)
+            spy = yf.download("SPY", start=earliest,
+                              end=today + datetime.timedelta(days=1), progress=False)
+            if not spy.empty:
+                sc = spy["Close"]
+                if isinstance(sc, pd.DataFrame):
+                    sc = sc["SPY"]
+                spy_cumulative = round((float(sc.iloc[-1]) / float(sc.iloc[0]) - 1) * 100, 2)
+        except Exception:
+            pass
+
+        benchmark_value = round(self.INITIAL_CAPITAL * (1 + spy_cumulative / 100), 2)
+        alpha = round(cumulative_return - spy_cumulative, 2)
 
         prev_snaps = self.db.get_portfolio_history(days=30)
-        prev_value = prev_snaps[-1]["portfolio_value"] if prev_snaps else total_invested
-        daily_return = round((portfolio_value / prev_value - 1) * 100, 2) if prev_value > 0 else 0.0
+        daily_return = 0.0
+        if prev_snaps:
+            prev = prev_snaps[-1]
+            prev_cum = prev.get("cumulative_return", 0) or 0
+            daily_return = round(cumulative_return - prev_cum, 2)
 
-        allocations = trade_log.get("allocations", [])
-        if allocations and open_positions:
-            pos_list = [
-                {"ticker": p.ticker, "current_return": p.current_return}
-                for p in open_positions if p.status == "open"
-            ]
-            port_ret = compute_portfolio_return(allocations, pos_list)
-        else:
-            port_ret = cumulative_return
-
-        bmark = fetch_benchmark_return("SPY", days=5)
-        if bmark is not None and port_ret is not None:
-            alpha_val = round(port_ret - bmark, 2)
-        else:
-            alpha_val = None
-
-        port_data = {
-            "total_invested": round(total_invested, 2),
-            "portfolio_value": round(portfolio_value, 2),
+        snap_data = {
+            "total_invested": self.INITIAL_CAPITAL,
+            "portfolio_value": portfolio_value,
             "daily_return": daily_return,
-            "cumulative_return": cumulative_return,
+            "cumulative_return": round(cumulative_return, 2),
             "open_positions": len(open_positions),
             "closed_positions_today": len(today_closed),
             "total_closed_positions": len(closed_positions),
-            "benchmark_return": bmark,
-            "alpha": alpha_val,
+            "benchmark_return": spy_cumulative,
+            "alpha": alpha,
+            "benchmark_value": benchmark_value,
         }
 
-        self.db.save_portfolio_snapshot(today, port_data)
+        self.db.save_portfolio_snapshot(today, snap_data)
+        return self._build_results(snap_data, trade_log, today, open_positions, today_closed, closed_positions)
+
+    def _build_results(self, snap_data: dict, trade_log: Dict, today: datetime.date,
+                       open_positions: List, today_closed: List,
+                       closed_positions: List) -> Dict[str, Any]:
+        prev_snaps = self.db.get_portfolio_history(days=30)
+        portfolio_history = [
+            {
+                "date": s["date"].isoformat() if hasattr(s["date"], "isoformat") else str(s["date"]),
+                "portfolio_value": s["portfolio_value"],
+                "benchmark_value": s.get("benchmark_value"),
+            }
+            for s in prev_snaps[-3:]
+        ] if prev_snaps else []
+
+        port_data = {
+            **snap_data,
+            "portfolio_history": portfolio_history,
+        }
+
+        todays_closed = [
+            {
+                "ticker": p.ticker,
+                "entry_date": p.entry_date.isoformat() if hasattr(p.entry_date, "isoformat") else str(p.entry_date),
+                "exit_date": p.exit_date.isoformat() if hasattr(p.exit_date, "isoformat") else str(p.exit_date),
+                "entry_price": p.entry_price,
+                "exit_price": p.exit_price,
+                "trade_return": p.trade_return,
+                "holding_days": (p.exit_date - p.entry_date).days if p.exit_date and p.entry_date else 0,
+            }
+            for p in today_closed
+        ]
 
         return {
             "portfolio": port_data,
@@ -399,23 +456,12 @@ class PerformanceTracker(BaseAgent):
                 }
                 for p in open_positions if p.status == "open"
             ],
-            "closed_positions_data": [
-                {
-                    "ticker": p.ticker,
-                    "entry_date": p.entry_date.isoformat() if hasattr(p.entry_date, "isoformat") else str(p.entry_date),
-                    "exit_date": p.exit_date.isoformat() if hasattr(p.exit_date, "isoformat") else str(p.exit_date),
-                    "entry_price": p.entry_price,
-                    "exit_price": p.exit_price,
-                    "trade_return": p.trade_return,
-                    "holding_days": (p.exit_date - p.entry_date).days if p.exit_date and p.entry_date else 0,
-                }
-                for p in today_closed
-            ],
+            "closed_positions_data": todays_closed,
             "allocation_data": trade_log.get("allocations", []),
             "cash_pct": trade_log.get("cash_pct", 0),
-            "portfolio_return": port_ret,
-            "benchmark_return": bmark,
-            "alpha": alpha_val,
+            "portfolio_return": snap_data.get("cumulative_return", 0),
+            "benchmark_return": snap_data.get("benchmark_return", 0),
+            "alpha": snap_data.get("alpha", 0),
         }
 
     def _evaluate_recommendation(self, rec: Recommendation) -> Optional[Dict]:

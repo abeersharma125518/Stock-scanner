@@ -418,6 +418,7 @@ class PortfolioSnapshot(Base):
     total_closed_positions = Column(Integer, default=0)
     benchmark_return = Column(Float, nullable=True)
     alpha = Column(Float, nullable=True)
+    benchmark_value = Column(Float, nullable=True)
 
 
 def create_all_tables(engine):

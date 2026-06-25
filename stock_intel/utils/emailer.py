@@ -128,21 +128,38 @@ class EmailReporter:
         portfolio = ctx.get("portfolio", {})
         port_html = ""
         if portfolio:
+            init_cap = portfolio.get("total_invested", 1000.0)
+            port_val = portfolio.get("portfolio_value", init_cap)
             cum_ret = portfolio.get("cumulative_return", 0)
             bmark = portfolio.get("benchmark_return")
             alpha = portfolio.get("alpha")
-            bmark_str = f"{bmark:+.2f}%" if bmark is not None else "N/A"
+            bmark_val = portfolio.get("benchmark_value")
+            bmark_ret_str = f"{bmark:+.2f}%" if bmark is not None else "N/A"
+            bmark_val_str = f"${bmark_val:,.2f}" if bmark_val is not None else "N/A"
             alpha_str = f"{alpha:+.2f}%" if alpha is not None else "N/A"
             alpha_color = "#27ae60" if (alpha or 0) >= 0 else "#e74c3c"
+            cum_color = "#27ae60" if cum_ret >= 0 else "#e74c3c"
+
+            history = portfolio.get("portfolio_history", [])
+            history_rows = ""
+            if history:
+                for h in history:
+                    hd = h.get("date", "?")[:10]
+                    hv = h.get("portfolio_value", 0)
+                    bv = h.get("benchmark_value")
+                    bv_str = f" / ${bv:,.2f}" if bv else ""
+                    history_rows += f"<tr><td style='padding:4px 8px;'>{hd}</td><td style='padding:4px 8px;'>${hv:,.2f}{bv_str}</td></tr>"
+
             port_html = f"""<table style="width:100%;border-collapse:collapse;">
-                <tr><td style="padding:6px;"><strong>Portfolio Value</strong></td><td style="padding:6px;">${portfolio.get('portfolio_value', 0):,.2f}</td></tr>
-                <tr><td style="padding:6px;"><strong>Total Invested</strong></td><td style="padding:6px;">${portfolio.get('total_invested', 0):,.2f}</td></tr>
-                <tr><td style="padding:6px;"><strong>Cumulative Return</strong></td><td style="padding:6px;color:{'#27ae60' if cum_ret>=0 else '#e74c3c'};font-weight:bold;">{cum_ret:+.2f}%</td></tr>
-                <tr><td style="padding:6px;"><strong>Benchmark (SPY)</strong></td><td style="padding:6px;">{bmark_str}</td></tr>
+                <tr><td style="padding:6px;"><strong>Initial Capital</strong></td><td style="padding:6px;">${init_cap:,.2f}</td></tr>
+                <tr><td style="padding:6px;"><strong>Portfolio Value</strong></td><td style="padding:6px;font-weight:bold;">${port_val:,.2f}</td></tr>
+                <tr><td style="padding:6px;"><strong>Cumulative Return</strong></td><td style="padding:6px;color:{cum_color};font-weight:bold;">{cum_ret:+.2f}%</td></tr>
+                <tr><td style="padding:6px;"><strong>SPY Benchmark</strong></td><td style="padding:6px;">{bmark_val_str} ({bmark_ret_str})</td></tr>
                 <tr><td style="padding:6px;"><strong>Alpha</strong></td><td style="padding:6px;color:{alpha_color};font-weight:bold;">{alpha_str}</td></tr>
                 <tr><td style="padding:6px;"><strong>Open Positions</strong></td><td style="padding:6px;">{portfolio.get('open_positions', 0)}</td></tr>
                 <tr><td style="padding:6px;"><strong>Total Closed</strong></td><td style="padding:6px;">{portfolio.get('total_closed_positions', 0)}</td></tr>
                 <tr><td style="padding:6px;"><strong>Today&apos;s Closed</strong></td><td style="padding:6px;">{portfolio.get('closed_positions_today', 0)}</td></tr>
+                {('<tr><td colspan="2" style="padding:8px 0 4px;"><strong style="font-size:13px;">Portfolio History</strong></td></tr>' + history_rows) if history_rows else ''}
             </table>"""
 
         allocation_data = ctx.get("allocation_data", [])

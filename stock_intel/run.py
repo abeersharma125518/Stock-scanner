@@ -286,9 +286,15 @@ def _send_test_email(db: DatabaseManager):
         }
         for p in closed_pos
     ]
-    portfolio_data = {"total_invested": 0, "portfolio_value": 0, "cumulative_return": 0,
+    portfolio_data = {"total_invested": 1000.0, "portfolio_value": 1042.15, "cumulative_return": 4.22,
                       "open_positions": len(open_pos_data), "total_closed_positions": len(closed_pos_data),
-                      "closed_positions_today": len(closed_pos_data)}
+                      "closed_positions_today": len(closed_pos_data),
+                      "benchmark_return": 2.15, "alpha": 2.07, "benchmark_value": 1021.30,
+                      "portfolio_history": [
+                          {"date": "2026-06-23", "portfolio_value": 1032.40, "benchmark_value": 1015.80},
+                          {"date": "2026-06-24", "portfolio_value": 1038.17, "benchmark_value": 1018.55},
+                          {"date": "2026-06-25", "portfolio_value": 1042.15, "benchmark_value": 1021.30},
+                      ]}
 
     rec_dicts = [dict(r) for r in recs]
     alloc_list, cash_pct_alloc, _ = compute_allocations(rec_dicts)
